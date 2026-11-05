@@ -13,6 +13,9 @@ import (
 
 const fileKey = "file"
 
+// version is overridden at build time via -ldflags "-X .../cmd.version=v1.2.3".
+var version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "dotenv",
 	Short: "Imperatively read and edit a dotenv file",
@@ -20,6 +23,7 @@ var rootCmd = &cobra.Command{
 
 Edits preserve comments, blank lines, and ordering. The target file defaults
 to .env in the current directory; override it with --file or DOTENV_FILE.`,
+	Version:       version,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

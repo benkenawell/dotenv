@@ -6,10 +6,22 @@ A small CLI for imperatively reading and editing a dotenv file, modeled on
 
 ## Install
 
+With [mise](https://mise.jdx.dev):
+
 ```sh
-go build -o dotenv .          # local binary
-go install github.com/benkenawell/dotenv@latest
+mise use -g github:benkenawell/dotenv@latest    # prebuilt release binary
+mise use -g go:github.com/benkenawell/dotenv    # build from source
 ```
+
+With Go:
+
+```sh
+go install github.com/benkenawell/dotenv@latest
+go build -o dotenv .          # local build from a checkout
+```
+
+Prebuilt binaries for Linux, macOS, and Windows are attached to each
+[GitHub Release](https://github.com/benkenawell/dotenv/releases).
 
 ## Usage
 
@@ -46,6 +58,19 @@ empty string removes it. Newlines in the text produce multiple comment lines.
 
 `set` creates the file if it does not exist; `get`, `ls`, and `remove` error
 if it is missing. Missing keys exit non-zero.
+
+## Releasing
+
+Pushing a semver tag builds binaries for Linux, macOS, and Windows (amd64 and
+arm64) with GoReleaser and publishes them as a GitHub Release with checksums.
+Tags with a pre-release suffix such as `v1.2.0-rc.1` are marked pre-release.
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+`dotenv --version` reports the tag the binary was built from.
 
 ## License
 
