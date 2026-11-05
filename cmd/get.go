@@ -28,6 +28,11 @@ what a program loading the file would see.`,
 		}
 		v, ok := f.Lookup(args[0])
 		if !ok {
+			for _, d := range f.DisabledEntries() {
+				if d.Key == args[0] {
+					return fmt.Errorf("%s: key %q is disabled (run `dotenv enable %s`)", path, args[0], args[0])
+				}
+			}
 			return fmt.Errorf("%s: key %q not found", path, args[0])
 		}
 		fmt.Println(v)

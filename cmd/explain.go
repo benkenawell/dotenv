@@ -19,7 +19,9 @@ var explainCmd = &cobra.Command{
 removed. Omit KEY to list every key with its line number and description.
 
 A comment block is one or more consecutive "#" lines immediately above the
-entry; a blank line ends the block. Write one with "dotenv set --explain".`,
+entry; a blank line ends the block. A commented-out entry such as "# KEY=value"
+is not part of a block: it is a disabled key with its own description, listed
+with a leading "# ". Write a block with "dotenv set --explain".`,
 	Example: `  dotenv explain DATABASE_URL
   dotenv explain
   dotenv explain --json`,
@@ -46,16 +48,21 @@ entry; a blank line ends the block. Write one with "dotenv set --explain".`,
 
 		all := f.ExplainAll()
 		if explainJSON {
-			out := make(map[string]string, len(all))
+			type item struct {
+				Line        int    `json:"line"`
+				Description string `json:"description"`
+				Enabled     bool   `json:"enabled"`
+			}
+			out := make(map[string]item, len(all))
 			for _, d := range all {
-				out[d.Key] = d.Description
+				out[d.Key] = item{Line: d.Line, Description: d.Description, Enabled: !d.Disabled}
 			}
 			return writeJSON(out)
 		}
 		fmt.Println(path)
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, d := range all {
-			fmt.Fprintf(w, "%4d  %s\t%s\n", d.Line, d.Key, strings.ReplaceAll(d.Description, "\n", " "))
+			fmt.Fprintf(w, "%4d  %s\t%s\n", d.Line, displayKey(d.Key, d.Disabled), strings.ReplaceAll(d.Description, "\n", " "))
 		}
 		return w.Flush()
 	},

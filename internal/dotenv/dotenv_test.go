@@ -245,3 +245,93 @@ func TestUnsetRemovesCommentBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestDisabledEntries(t *testing.T) {
+	src := "# header\n\n# about A\nA=1\n\n# about B\n# B='two\n# lines'\n\n# about C\nC=3 # inline\n# NOTE: not=an entry? no, it is\n"
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(f.Bytes()) != src {
+		t.Errorf("round-trip changed content:\n%s", f.Bytes())
+	}
+	if _, ok := f.Lookup("B"); ok {
+		t.Error("disabled B must not be an active value")
+	}
+	if len(f.Entries()) != 2 {
+		t.Errorf("Entries should skip disabled: %+v", f.Entries())
+	}
+	dis := f.DisabledEntries()
+	if len(dis) != 1 || dis[0].Key != "B" || dis[0].Value != "two\nlines" {
+		t.Errorf("DisabledEntries: %+v", dis)
+	}
+	// Explain blocks: the disabled entry owns its block and ends it, so C's
+	// block is not polluted by B's commented-out line.
+	if d, ok := f.Explain("B"); !ok || d != "about B" {
+		t.Errorf("explain disabled B: %q %v", d, ok)
+	}
+	if d, _ := f.Explain("C"); d != "about C" {
+		t.Errorf("explain C: %q", d)
+	}
+	all := f.ExplainAll()
+	if len(all) != 3 || !all[1].Disabled || all[1].Key != "B" || all[1].Line != 7 {
+		t.Errorf("ExplainAll: %+v", all)
+	}
+	// "# NOTE: ..." has an invalid key and stays a plain comment.
+	if _, ok := f.Explain("NOTE:"); ok {
+		t.Error("invalid key must not become a disabled entry")
+	}
+
+	// Enable B in place: block preserved, multi-line value restored.
+	if !f.Enable("B") {
+		t.Fatal("enable B")
+	}
+	wantEnabled := strings.Replace(src, "# B='two\n# lines'", "B='two\nlines'", 1)
+	if got := string(f.Bytes()); got != wantEnabled {
+		t.Errorf("enable:\n got %q\nwant %q", got, wantEnabled)
+	}
+	if v, _ := f.Lookup("B"); v != "two\nlines" {
+		t.Errorf("enabled value: %q", v)
+	}
+	// Disable it again: identical to the original.
+	if !f.Disable("B") {
+		t.Fatal("disable B")
+	}
+	if got := string(f.Bytes()); got != src {
+		t.Errorf("disable did not round-trip:\n got %q\nwant %q", got, src)
+	}
+
+	// Disable an entry with export prefix and inline comment, then enable.
+	g, _ := Parse([]byte("export K=v # note\n"))
+	g.Disable("K")
+	if got := string(g.Bytes()); got != "# export K=v # note\n" {
+		t.Errorf("disable export: %q", got)
+	}
+	g.Enable("K")
+	if got := string(g.Bytes()); got != "export K=v # note\n" {
+		t.Errorf("enable export: %q", got)
+	}
+
+	// Idempotence and missing keys.
+	if !f.Disable("B") || !f.Enable("A") {
+		t.Error("toggling into the current state should still report found")
+	}
+	if f.Disable("ZZZ") || f.Enable("ZZZ") {
+		t.Error("missing key must report not found")
+	}
+
+	// Set on a disabled key re-enables it in place with the new value.
+	f.Set("B", "new")
+	if got := string(f.Bytes()); !strings.Contains(got, "# about B\nB=new\n") || strings.Contains(got, "# B=") {
+		t.Errorf("set on disabled:\n%s", got)
+	}
+
+	// Remove takes disabled copies and their blocks.
+	f.Disable("B")
+	if !f.Unset("B") {
+		t.Fatal("unset disabled B")
+	}
+	if got := string(f.Bytes()); strings.Contains(got, "B") {
+		t.Errorf("remove left disabled B behind:\n%s", got)
+	}
+}

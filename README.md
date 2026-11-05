@@ -51,6 +51,10 @@ dotenv explain DATABASE_URL        # print the comment block above the key
 dotenv explain                     # line, key, and comment for every key
 dotenv explain --json
 
+dotenv disable DEBUG               # comment the line out: "# DEBUG=..."
+dotenv enable DEBUG                # uncomment it again
+dotenv ls --all                    # -a, include disabled keys
+
 dotenv remove DEBUG OLD_KEY        # aliases: rm, unset, delete
 
 dotenv -f .env.production get API_KEY
@@ -60,6 +64,11 @@ A comment block is one or more consecutive `#` lines directly above an entry;
 a blank line ends it. `set --explain` replaces any existing block, and an
 empty string removes it. Newlines in the text produce multiple comment lines.
 `remove` deletes a key's comment block along with the key.
+
+A commented-out line that still reads as `# KEY=value` is treated as a
+*disabled* key rather than as comment text. It is hidden from `get` and `ls`,
+but `explain` lists it with a leading `# `, the comment block above it stays
+attached to it, `set` re-enables it in place, and `remove` deletes it.
 
 `set` creates the file if it does not exist; `get`, `ls`, and `remove` error
 if it is missing. Missing keys exit non-zero.

@@ -14,7 +14,8 @@ var setCmd = &cobra.Command{
 	Short: "Set a value in the dotenv file",
 	Long: `Set KEY to VALUE in the dotenv file, creating the file if needed.
 
-An existing key is rewritten in place; a new key is appended. The value may be
+An existing key is rewritten in place; a new key is appended. A key that exists
+only in disabled form ("# KEY=value") is re-enabled in place. The value may be
 given as a second argument or as a single KEY=VALUE argument. Values are quoted
 only when required.
 

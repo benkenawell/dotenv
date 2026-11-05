@@ -22,6 +22,10 @@ type Line struct {
 	Value  string
 	Export bool
 	Entry  bool
+	// Disabled marks a commented-out entry such as "# KEY=value". It is not
+	// an active value, but it is tracked so it can be re-enabled and so the
+	// comment block above it stays attached to it.
+	Disabled bool
 	// Comment is a trailing inline comment (including the leading "#"),
 	// preserved when the entry is rewritten.
 	Comment string
@@ -56,52 +60,93 @@ func Parse(data []byte) (*File, error) {
 	for i := 0; i < len(raw); i++ {
 		line := raw[i]
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		if trimmed == "" {
 			f.Lines = append(f.Lines, Line{Raw: line})
 			continue
 		}
-		eq := strings.IndexByte(trimmed, '=')
-		if eq < 0 {
+		if strings.HasPrefix(trimmed, "#") {
+			// A comment whose content is itself a KEY=value line is a
+			// disabled entry. Gather the run of comment lines so a
+			// multi-line quoted value that was commented out still parses.
+			j := i
+			var stripped []string
+			for j < len(raw) && strings.HasPrefix(strings.TrimSpace(raw[j]), "#") {
+				stripped = append(stripped, uncomment(raw[j]))
+				j++
+			}
+			if l, consumed, err := parseEntry(stripped); err == nil && l.Entry {
+				l.Entry, l.Disabled = false, true
+				l.Raw = strings.Join(raw[i:i+1+consumed], "\n")
+				f.Lines = append(f.Lines, l)
+				i += consumed
+				continue
+			}
 			f.Lines = append(f.Lines, Line{Raw: line})
 			continue
 		}
-		keyPart := strings.TrimSpace(trimmed[:eq])
-		export := false
-		if rest, ok := strings.CutPrefix(keyPart, "export"); ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t') {
-			if rest != "" {
-				export = true
-				keyPart = strings.TrimSpace(rest)
-			}
+		l, consumed, err := parseEntry(raw[i:])
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
-		if !ValidKey(keyPart) {
+		if !l.Entry {
 			f.Lines = append(f.Lines, Line{Raw: line})
 			continue
 		}
-		valPart := strings.TrimLeft(trimmed[eq+1:], " \t")
-
-		var value, comment string
-		consumed := 0
-		switch {
-		case strings.HasPrefix(valPart, `"`):
-			v, extra, rest, err := parseDoubleQuoted(valPart[1:], raw[i+1:])
-			if err != nil {
-				return nil, fmt.Errorf("line %d: %w", i+1, err)
-			}
-			value, consumed, comment = v, extra, trailingComment(rest)
-		case strings.HasPrefix(valPart, `'`):
-			v, extra, rest, err := parseSingleQuoted(valPart[1:], raw[i+1:])
-			if err != nil {
-				return nil, fmt.Errorf("line %d: %w", i+1, err)
-			}
-			value, consumed, comment = v, extra, trailingComment(rest)
-		default:
-			value, comment = splitInlineComment(valPart)
-		}
-		rawText := strings.Join(raw[i:i+1+consumed], "\n")
+		l.Raw = strings.Join(raw[i:i+1+consumed], "\n")
+		f.Lines = append(f.Lines, l)
 		i += consumed
-		f.Lines = append(f.Lines, Line{Raw: rawText, Key: keyPart, Value: value, Export: export, Entry: true, Comment: comment})
 	}
 	return f, nil
+}
+
+// uncomment strips the leading "#" and at most one following space from a
+// comment line, preserving indentation.
+func uncomment(line string) string {
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	rest := strings.TrimPrefix(strings.TrimLeft(line, " \t"), "#")
+	return indent + strings.TrimPrefix(rest, " ")
+}
+
+// parseEntry parses a KEY=value entry beginning at lines[0], which may
+// continue onto following lines inside quotes. It returns the entry (with
+// Raw unset), the number of extra lines consumed, and an error for an
+// unterminated quote. A line that is not an entry yields Entry=false.
+func parseEntry(lines []string) (Line, int, error) {
+	trimmed := strings.TrimSpace(lines[0])
+	eq := strings.IndexByte(trimmed, '=')
+	if eq < 0 {
+		return Line{}, 0, nil
+	}
+	keyPart := strings.TrimSpace(trimmed[:eq])
+	export := false
+	if rest, ok := strings.CutPrefix(keyPart, "export"); ok && rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
+		export = true
+		keyPart = strings.TrimSpace(rest)
+	}
+	if !ValidKey(keyPart) {
+		return Line{}, 0, nil
+	}
+	valPart := strings.TrimLeft(trimmed[eq+1:], " \t")
+
+	var value, comment string
+	consumed := 0
+	switch {
+	case strings.HasPrefix(valPart, `"`):
+		v, extra, rest, err := parseDoubleQuoted(valPart[1:], lines[1:])
+		if err != nil {
+			return Line{}, 0, err
+		}
+		value, consumed, comment = v, extra, trailingComment(rest)
+	case strings.HasPrefix(valPart, `'`):
+		v, extra, rest, err := parseSingleQuoted(valPart[1:], lines[1:])
+		if err != nil {
+			return Line{}, 0, err
+		}
+		value, consumed, comment = v, extra, trailingComment(rest)
+	default:
+		value, comment = splitInlineComment(valPart)
+	}
+	return Line{Key: keyPart, Value: value, Export: export, Entry: true, Comment: comment}, consumed, nil
 }
 
 // splitInlineComment separates an unquoted value from a trailing " # comment".
@@ -266,14 +311,14 @@ func (f *File) Entries() []Line {
 }
 
 // Set assigns value to key, rewriting the last existing occurrence in place
-// or appending a new line.
+// or appending a new line. If the key exists only as a disabled entry, that
+// entry is re-enabled in place.
 func (f *File) Set(key, value string) {
-	for i := len(f.Lines) - 1; i >= 0; i-- {
-		if f.Lines[i].Entry && f.Lines[i].Key == key {
-			f.Lines[i].Value = value
-			f.Lines[i].Raw = render(f.Lines[i])
-			return
-		}
+	if i := f.lastIndex(key); i >= 0 {
+		f.Lines[i].Entry, f.Lines[i].Disabled = true, false
+		f.Lines[i].Value = value
+		f.Lines[i].Raw = render(f.Lines[i])
+		return
 	}
 	l := Line{Key: key, Value: value, Entry: true}
 	l.Raw = render(l)
@@ -286,7 +331,7 @@ func (f *File) Set(key, value string) {
 func (f *File) Unset(key string) bool {
 	removed := false
 	for i := len(f.Lines) - 1; i >= 0; i-- {
-		if !f.Lines[i].Entry || f.Lines[i].Key != key {
+		if !(f.Lines[i].Entry || f.Lines[i].Disabled) || f.Lines[i].Key != key {
 			continue
 		}
 		removed = true
@@ -371,10 +416,11 @@ type Described struct {
 	Line        int // 1-based line number of the entry
 	Key         string
 	Description string // "" when there is no comment block
+	Disabled    bool   // the entry is commented out
 }
 
 func isComment(l Line) bool {
-	return !l.Entry && strings.HasPrefix(strings.TrimSpace(l.Raw), "#")
+	return !l.Entry && !l.Disabled && strings.HasPrefix(strings.TrimSpace(l.Raw), "#")
 }
 
 // commentBlockStart returns the index of the first line of the contiguous
@@ -387,13 +433,23 @@ func (f *File) commentBlockStart(i int) int {
 	return start
 }
 
+// lastIndex returns the index of the last active entry for key, falling back
+// to the last disabled entry, or -1.
 func (f *File) lastIndex(key string) int {
+	disabled := -1
 	for i := len(f.Lines) - 1; i >= 0; i-- {
-		if f.Lines[i].Entry && f.Lines[i].Key == key {
+		l := f.Lines[i]
+		if l.Key != key {
+			continue
+		}
+		if l.Entry {
 			return i
 		}
+		if l.Disabled && disabled < 0 {
+			disabled = i
+		}
 	}
-	return -1
+	return disabled
 }
 
 func (f *File) descriptionAt(i int) string {
@@ -426,8 +482,8 @@ func (f *File) ExplainAll() []Described {
 	var out []Described
 	lineNo := 1
 	for i, l := range f.Lines {
-		if l.Entry {
-			d := Described{Line: lineNo, Key: l.Key, Description: f.descriptionAt(i)}
+		if l.Entry || l.Disabled {
+			d := Described{Line: lineNo, Key: l.Key, Description: f.descriptionAt(i), Disabled: l.Disabled}
 			if j, seen := idx[l.Key]; seen {
 				out[j] = d
 			} else {
@@ -471,4 +527,69 @@ func (f *File) SetComment(key, text string) bool {
 	lines = append(lines, f.Lines[i:]...)
 	f.Lines = lines
 	return true
+}
+
+// Disable comments out every active entry for key, preserving its text so it
+// can be re-enabled. It reports whether the key exists in any state.
+func (f *File) Disable(key string) bool {
+	found := false
+	for i := range f.Lines {
+		l := &f.Lines[i]
+		if l.Key != key || !(l.Entry || l.Disabled) {
+			continue
+		}
+		found = true
+		if l.Disabled {
+			continue
+		}
+		parts := strings.Split(l.Raw, "\n")
+		for j, p := range parts {
+			parts[j] = "# " + p
+		}
+		l.Raw = strings.Join(parts, "\n")
+		l.Entry, l.Disabled = false, true
+	}
+	return found
+}
+
+// Enable uncomments every disabled entry for key. It reports whether the key
+// exists in any state.
+func (f *File) Enable(key string) bool {
+	found := false
+	for i := range f.Lines {
+		l := &f.Lines[i]
+		if l.Key != key || !(l.Entry || l.Disabled) {
+			continue
+		}
+		found = true
+		if l.Entry {
+			continue
+		}
+		parts := strings.Split(l.Raw, "\n")
+		for j, p := range parts {
+			parts[j] = uncomment(p)
+		}
+		l.Raw = strings.Join(parts, "\n")
+		l.Entry, l.Disabled = true, false
+	}
+	return found
+}
+
+// DisabledEntries returns disabled entries in file order, duplicates
+// collapsed to their last occurrence.
+func (f *File) DisabledEntries() []Line {
+	idx := map[string]int{}
+	var out []Line
+	for _, l := range f.Lines {
+		if !l.Disabled {
+			continue
+		}
+		if i, ok := idx[l.Key]; ok {
+			out[i] = l
+			continue
+		}
+		idx[l.Key] = len(out)
+		out = append(out, l)
+	}
+	return out
 }

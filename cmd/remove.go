@@ -12,9 +12,9 @@ var removeCmd = &cobra.Command{
 	Use:     "remove <KEY>...",
 	Aliases: []string{"rm", "unset", "delete"},
 	Short:   "Remove keys from the dotenv file",
-	Long: `Remove each KEY from the dotenv file. The comment block directly above a
-key (see "dotenv explain") is removed with it, so no orphaned description is
-left attached to the next entry.`,
+	Long: `Remove each KEY from the dotenv file, including disabled ("# KEY=value")
+copies. The comment block directly above a key (see "dotenv explain") is
+removed with it, so no orphaned description is left attached to the next entry.`,
 	Example: `  dotenv remove DEBUG
   dotenv remove -f .env.local OLD_KEY OTHER_KEY`,
 	Args: cobra.MinimumNArgs(1),
