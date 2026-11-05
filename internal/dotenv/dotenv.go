@@ -280,18 +280,26 @@ func (f *File) Set(key, value string) {
 	f.Lines = append(f.Lines, l)
 }
 
-// Unset removes every occurrence of key. It reports whether anything was removed.
+// Unset removes every occurrence of key along with the comment block directly
+// above each one. A blank line that would be left doubled, or left dangling at
+// the end of the file, is removed too. It reports whether anything was removed.
 func (f *File) Unset(key string) bool {
-	kept := f.Lines[:0]
 	removed := false
-	for _, l := range f.Lines {
-		if l.Entry && l.Key == key {
-			removed = true
+	for i := len(f.Lines) - 1; i >= 0; i-- {
+		if !f.Lines[i].Entry || f.Lines[i].Key != key {
 			continue
 		}
-		kept = append(kept, l)
+		removed = true
+		start := f.commentBlockStart(i)
+		end := i + 1
+		prevBlank := start > 0 && strings.TrimSpace(f.Lines[start-1].Raw) == ""
+		nextBlank := end >= len(f.Lines) || strings.TrimSpace(f.Lines[end].Raw) == ""
+		if prevBlank && nextBlank {
+			start--
+		}
+		f.Lines = append(f.Lines[:start:start], f.Lines[end:]...)
+		i = start
 	}
-	f.Lines = kept
 	return removed
 }
 

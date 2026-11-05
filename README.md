@@ -57,6 +57,7 @@ dotenv -f .env.production get API_KEY
 A comment block is one or more consecutive `#` lines directly above an entry;
 a blank line ends it. `set --explain` replaces any existing block, and an
 empty string removes it. Newlines in the text produce multiple comment lines.
+`remove` deletes a key's comment block along with the key.
 
 `set` creates the file if it does not exist; `get`, `ls`, and `remove` error
 if it is missing. Missing keys exit non-zero.

@@ -221,3 +221,27 @@ func TestSingleQuotedJSON(t *testing.T) {
 		t.Errorf("written JSON round-trip: %q", got)
 	}
 }
+
+func TestUnsetRemovesCommentBlock(t *testing.T) {
+	cases := []struct{ name, src, key, want string }{
+		{"block in middle", "A=1\n\n# about B\n# more\nB=2\n\nC=3\n", "B", "A=1\n\nC=3\n"},
+		{"block at end", "A=1\n\n# about B\nB=2\n", "B", "A=1\n"},
+		{"block at start", "# about A\nA=1\nB=2\n", "A", "B=2\n"},
+		{"no blank separators", "A=1\n# about B\nB=2\nC=3\n", "B", "A=1\nC=3\n"},
+		{"header comment separated by blank stays", "# header\n\nA=1\nB=2\n", "A", "# header\n\nB=2\n"},
+		{"duplicates each take their block", "# one\nA=1\nB=2\n# two\nA=3\n", "A", "B=2\n"},
+		{"inline comment only", "A=1 # inline\nB=2\n", "A", "B=2\n"},
+	}
+	for _, c := range cases {
+		f, err := Parse([]byte(c.src))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if !f.Unset(c.key) {
+			t.Errorf("%s: key not removed", c.name)
+		}
+		if got := string(f.Bytes()); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
