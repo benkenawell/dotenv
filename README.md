@@ -4,6 +4,8 @@ A small CLI for imperatively reading and editing a dotenv file, modeled on
 `mise config get/set/ls`. Edits preserve comments, blank lines, ordering,
 `export` prefixes, and inline comments.
 
+This utility is NOT for loading envvars into a session or running a command with them in its environment. It is for management of the files only. If you need something to load them, checkout direnv or mise.
+
 Mostly vibed, use as your own risk. I couldn't find an easy cli to install that let me manage dotenvs well from the command line, so I had the AI write this up for me.
 
 ## Install
