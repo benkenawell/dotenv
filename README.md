@@ -34,6 +34,8 @@ The target file defaults to `.env` in the current directory. Override it with
 
 ```sh
 dotenv get DATABASE_URL            # print one value (unquoted, escapes resolved)
+dotenv get DB_HOST --all           # -a, every active value of a repeated key, in file order
+dotenv get DB_HOST --all --json    # every occurrence incl. disabled, with line numbers
 dotenv get                         # print the whole file
 
 dotenv set PORT 8080               # rewrite in place, or append if new
@@ -51,6 +53,7 @@ dotenv explain                     # line, key, and comment for every key
 dotenv explain --json
 dotenv explain DATABASE_URL        # print the comment block above the key
 dotenv explain get DATABASE_URL    # same thing, long form
+dotenv explain get DB_HOST --all   # -a, one row per occurrence, disabled included
 dotenv explain set DATABASE_URL 'Postgres connection string'
 dotenv explain remove DATABASE_URL # delete the comment block, keep the key
 

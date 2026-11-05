@@ -12,7 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var explainJSON bool
+var (
+	explainJSON bool
+	explainAll  bool
+)
 
 var explainCmd = &cobra.Command{
 	Use:   "explain [KEY]",
@@ -67,13 +70,51 @@ reach it with "explain get <KEY>".`,
 }
 
 var explainGetCmd = &cobra.Command{
-	Use:     "get <KEY>",
-	Short:   "Print the description of a key",
-	Example: `  dotenv explain get DATABASE_URL`,
-	Args:    cobra.ExactArgs(1),
+	Use:   "get <KEY>",
+	Short: "Print the description of a key",
+	Long: `Print the description of KEY: the comment block above its last occurrence.
+
+With --all, list every occurrence of KEY, disabled ones included, with its line
+number and description in the same format as "dotenv explain".`,
+	Example: `  dotenv explain get DATABASE_URL
+  dotenv explain get DB_HOST --all`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if explainAll {
+			return explainGetAll(args[0])
+		}
 		return explainGet(args[0])
 	},
+}
+
+// explainGetAll lists every occurrence of key with its description.
+func explainGetAll(key string) error {
+	f, path, err := loadExisting()
+	if err != nil {
+		return err
+	}
+	occ := f.Occurrences(key)
+	if len(occ) == 0 {
+		return fmt.Errorf("%s: key %q not found", path, key)
+	}
+	if explainJSON {
+		type item struct {
+			Line        int    `json:"line"`
+			Description string `json:"description"`
+			Enabled     bool   `json:"enabled"`
+		}
+		out := make([]item, 0, len(occ))
+		for _, o := range occ {
+			out = append(out, item{Line: o.Line, Description: o.Description, Enabled: !o.Disabled})
+		}
+		return writeJSON(out)
+	}
+	fmt.Println(path)
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, o := range occ {
+		fmt.Fprintf(w, "%4d  %s\t%s\n", o.Line, displayKey(key, o.Disabled), strings.ReplaceAll(o.Description, "\n", " "))
+	}
+	return w.Flush()
 }
 
 var explainSetCmd = &cobra.Command{
@@ -160,6 +201,7 @@ func writeJSON(v any) error {
 
 func init() {
 	explainCmd.PersistentFlags().BoolVarP(&explainJSON, "json", "J", false, "output as JSON")
+	explainGetCmd.Flags().BoolVarP(&explainAll, "all", "a", false, "list every occurrence of KEY, not just the last")
 	explainCmd.AddCommand(explainGetCmd, explainSetCmd, explainRemoveCmd)
 	rootCmd.AddCommand(explainCmd)
 }

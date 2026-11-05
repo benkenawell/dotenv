@@ -686,3 +686,25 @@ func (f *File) Format() bool {
 	f.Lines = out
 	return !bytes.Equal(before, f.Bytes())
 }
+
+// Occurrence is one appearance of a key in the file.
+type Occurrence struct {
+	Line        int // 1-based line number of the entry
+	Value       string
+	Description string
+	Disabled    bool
+}
+
+// Occurrences returns every appearance of key, active or disabled, in file
+// order.
+func (f *File) Occurrences(key string) []Occurrence {
+	var out []Occurrence
+	lineNo := 1
+	for i, l := range f.Lines {
+		if (l.Entry || l.Disabled) && l.Key == key {
+			out = append(out, Occurrence{Line: lineNo, Value: l.Value, Description: f.descriptionAt(i), Disabled: l.Disabled})
+		}
+		lineNo += strings.Count(l.Raw, "\n") + 1
+	}
+	return out
+}

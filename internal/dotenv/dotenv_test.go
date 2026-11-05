@@ -431,3 +431,24 @@ func TestFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestOccurrences(t *testing.T) {
+	f, _ := Parse([]byte("# first\nA=1\nB=x\n\n# second\n# A='two\n# lines'\nA=3\n"))
+	occ := f.Occurrences("A")
+	want := []Occurrence{
+		{Line: 2, Value: "1", Description: "first"},
+		{Line: 6, Value: "two\nlines", Description: "second", Disabled: true},
+		{Line: 8, Value: "3"},
+	}
+	if len(occ) != len(want) {
+		t.Fatalf("got %+v", occ)
+	}
+	for i := range want {
+		if occ[i] != want[i] {
+			t.Errorf("occurrence %d: got %+v want %+v", i, occ[i], want[i])
+		}
+	}
+	if len(f.Occurrences("ZZZ")) != 0 {
+		t.Error("missing key should have no occurrences")
+	}
+}
