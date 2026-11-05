@@ -47,9 +47,12 @@ dotenv ls --no-header
 dotenv ls --json                   # -J
 dotenv ls --keys                   # -k, key names only
 
-dotenv explain DATABASE_URL        # print the comment block above the key
 dotenv explain                     # line, key, and comment for every key
 dotenv explain --json
+dotenv explain DATABASE_URL        # print the comment block above the key
+dotenv explain get DATABASE_URL    # same thing, long form
+dotenv explain set DATABASE_URL 'Postgres connection string'
+dotenv explain remove DATABASE_URL # delete the comment block, keep the key
 
 dotenv disable DEBUG               # comment the line out: "# DEBUG=..."
 dotenv enable DEBUG                # uncomment it again
@@ -62,9 +65,11 @@ dotenv -f .env.production get API_KEY
 ```
 
 A comment block is one or more consecutive `#` lines directly above an entry;
-a blank line ends it. `set --explain` replaces any existing block, and an
-empty string removes it. Newlines in the text produce multiple comment lines.
-`remove` deletes a key's comment block along with the key.
+a blank line ends it. `explain set` and `set --explain` replace any existing
+block, and newlines in the text produce multiple comment lines. `explain set`
+needs the key to exist; `set --explain` creates key and description together.
+`explain remove` deletes only the block, while `remove` deletes the key and its
+block. All of these work on disabled keys too.
 
 Given this `.env`:
 

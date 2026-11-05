@@ -21,7 +21,7 @@ only when required.
 
 Use --explain to write a comment block directly above the key, replacing any
 comment already there. Newlines in the text produce multiple comment lines.
-Read it back with "dotenv explain KEY".`,
+Read it back with "dotenv explain KEY"; edit it later with "dotenv explain set".`,
 	Example: `  dotenv set PORT 8080
   dotenv set DATABASE_URL=postgres://localhost/app
   dotenv set -f .env.local SECRET 'has spaces and #hash'
