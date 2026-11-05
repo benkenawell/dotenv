@@ -35,7 +35,7 @@ The target file defaults to `.env` in the current directory. Override it with
 ```sh
 dotenv get DATABASE_URL            # print one value (unquoted, escapes resolved)
 dotenv get DB_HOST --all           # -a, every active value of a repeated key, in file order
-dotenv get DB_HOST --all --json    # every occurrence incl. disabled, with line numbers
+dotenv get DB_HOST --all --json    # every occurrence incl. disabled, with line and description
 dotenv get                         # print the whole file
 
 dotenv set PORT 8080               # rewrite in place, or append if new
@@ -44,10 +44,12 @@ dotenv set SECRET 'has spaces'     # quoted automatically when needed
 dotenv set -e 'Postgres DSN' DATABASE_URL postgres://localhost/app
                                    # --explain writes a comment block above the key
 
-dotenv ls                          # Key/Value table
+dotenv ls                          # effective view: one row per key, last active value wins
 dotenv ls --no-header
-dotenv ls --json                   # -J
+dotenv ls --json                   # -J, flat {key: value} object
 dotenv ls --keys                   # -k, key names only
+dotenv ls --all                    # -a, file view: every occurrence with line and description, disabled included
+dotenv ls --all --json             # array of {line, key, value, description, enabled}
 
 dotenv explain                     # line, key, and comment for every key
 dotenv explain --json
@@ -60,8 +62,6 @@ dotenv explain remove DATABASE_URL # delete the comment block, keep the key
 dotenv disable DEBUG               # comment the line out: "# DEBUG=..."
 dotenv enable DEBUG                # uncomment it again
 dotenv toggle DEBUG                # flip between the two
-dotenv ls --all                    # -a, include disabled keys
-
 dotenv remove DEBUG OLD_KEY        # aliases: rm, unset, delete
 
 dotenv format                      # print the file with repeated keys grouped (alias: fmt)
@@ -101,10 +101,33 @@ PORT=8080
    8  # DEBUG       Verbose request logging
 ```
 
+`dotenv ls` shows the effective environment, so the disabled key is absent:
+
+```
+Key           Value
+DATABASE_URL  postgres://localhost/app
+PORT          8080
+```
+
+`dotenv ls --all` shows the file as written, with every occurrence, its line,
+its value, and its description:
+
+```
+Line  Key           Value                     Description
+   2  DATABASE_URL  postgres://localhost/app  Postgres connection string
+   5  PORT          8080                      Port the API listens on
+   8  # DEBUG       true                      Verbose request logging
+```
+
 A commented-out line that still reads as `# KEY=value` is treated as a
 *disabled* key rather than as comment text. It is hidden from `get` and `ls`,
-but `explain` lists it with a leading `# `, the comment block above it stays
-attached to it, `set` re-enables it in place, and `remove` deletes it.
+but `explain` and the `--all` listings show it with a leading `# `, the comment
+block above it stays attached to it, `set` re-enables it in place, and `remove`
+deletes it.
+
+`--all` means the same thing everywhere: every occurrence in file order,
+disabled included. Without it, `get`, `ls`, and `explain` describe the
+effective environment, where the last active occurrence of a key wins.
 
 `format` moves every later occurrence of a key, active or disabled, up to sit
 after its first occurrence. Occurrences keep their relative order and each

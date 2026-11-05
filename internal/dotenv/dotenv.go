@@ -708,3 +708,26 @@ func (f *File) Occurrences(key string) []Occurrence {
 	}
 	return out
 }
+
+// Row is one occurrence of any key, used for a file-order listing.
+type Row struct {
+	Line        int // 1-based line number of the entry
+	Key         string
+	Value       string
+	Description string // comment block above the entry, "" if none
+	Disabled    bool
+}
+
+// AllOccurrences returns every entry in the file, active or disabled, in
+// file order, with duplicates kept.
+func (f *File) AllOccurrences() []Row {
+	var out []Row
+	lineNo := 1
+	for i, l := range f.Lines {
+		if l.Entry || l.Disabled {
+			out = append(out, Row{Line: lineNo, Key: l.Key, Value: l.Value, Description: f.descriptionAt(i), Disabled: l.Disabled})
+		}
+		lineNo += strings.Count(l.Raw, "\n") + 1
+	}
+	return out
+}

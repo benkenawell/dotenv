@@ -452,3 +452,26 @@ func TestOccurrences(t *testing.T) {
 		t.Error("missing key should have no occurrences")
 	}
 }
+
+func TestAllOccurrences(t *testing.T) {
+	f, _ := Parse([]byte("# header\nA=1\nB='x\ny'\n# staging\n# A=2\nA=3\n"))
+	got := f.AllOccurrences()
+	want := []Row{
+		{Line: 2, Key: "A", Value: "1", Description: "header"},
+		{Line: 3, Key: "B", Value: "x\ny"},
+		{Line: 6, Key: "A", Value: "2", Description: "staging", Disabled: true},
+		{Line: 7, Key: "A", Value: "3"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d: got %+v want %+v", i, got[i], want[i])
+		}
+	}
+	// The effective view still collapses to the last active value.
+	if e := f.Entries(); len(e) != 2 || e[0].Value != "3" {
+		t.Errorf("Entries: %+v", e)
+	}
+}

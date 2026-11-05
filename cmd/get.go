@@ -22,7 +22,7 @@ the last active occurrence wins.
 
 With --all, print every active value of KEY in file order, one per line. With
 --json the output is structured; combined with --all it is an array of every
-occurrence, disabled ones included, each with its line number.`,
+occurrence, disabled ones included, each with its line number and description.`,
 	Example: `  dotenv get DATABASE_URL
   dotenv get -f .env.production API_KEY
   dotenv get DB_HOST --all
@@ -50,13 +50,14 @@ occurrence, disabled ones included, each with its line number.`,
 			}
 			if getJSON {
 				type item struct {
-					Line    int    `json:"line"`
-					Value   string `json:"value"`
-					Enabled bool   `json:"enabled"`
+					Line        int    `json:"line"`
+					Value       string `json:"value"`
+					Description string `json:"description"`
+					Enabled     bool   `json:"enabled"`
 				}
 				out := make([]item, 0, len(occ))
 				for _, o := range occ {
-					out = append(out, item{Line: o.Line, Value: o.Value, Enabled: !o.Disabled})
+					out = append(out, item{Line: o.Line, Value: o.Value, Description: o.Description, Enabled: !o.Disabled})
 				}
 				return writeJSON(out)
 			}
