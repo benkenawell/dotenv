@@ -8,7 +8,7 @@ A small CLI for imperatively reading and editing a dotenv file, modeled on
 
 ```sh
 go build -o dotenv .          # local binary
-go install                    # into $GOPATH/bin
+go install github.com/benkenawell/dotenv@latest
 ```
 
 ## Usage

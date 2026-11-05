@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"dotenv/internal/dotenv"
+	"github.com/benkenawell/dotenv/internal/dotenv"
 
 	"github.com/spf13/cobra"
 )

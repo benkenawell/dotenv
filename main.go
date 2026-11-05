@@ -1,6 +1,6 @@
 package main
 
-import "dotenv/cmd"
+import "github.com/benkenawell/dotenv/cmd"
 
 func main() {
 	cmd.Execute()

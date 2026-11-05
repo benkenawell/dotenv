@@ -1,4 +1,4 @@
-module dotenv
+module github.com/benkenawell/dotenv
 
 go 1.26
 

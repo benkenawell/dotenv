@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"dotenv/internal/dotenv"
+	"github.com/benkenawell/dotenv/internal/dotenv"
 
 	"github.com/spf13/cobra"
 )

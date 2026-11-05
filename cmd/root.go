@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"dotenv/internal/dotenv"
+	"github.com/benkenawell/dotenv/internal/dotenv"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
