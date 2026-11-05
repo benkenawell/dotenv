@@ -602,3 +602,87 @@ func (f *File) Toggle(key string) bool {
 	}
 	return f.Enable(key)
 }
+
+// Format groups every occurrence of a key, active or disabled, together at
+// the position of its first occurrence. Occurrences keep their relative order
+// and each keeps the comment block directly above it. Blank lines left
+// doubled or dangling by a move are removed. It reports whether anything
+// changed.
+func (f *File) Format() bool {
+	before := f.Bytes()
+
+	// Segment into units: a key unit spans an entry's comment block and the
+	// entry itself; everything else is a single filler line.
+	type unit struct {
+		lines []Line
+		key   string // "" for filler
+	}
+	var units []unit
+	for i := 0; i < len(f.Lines); i++ {
+		// Find the next entry; everything before its block is filler.
+		j := i
+		for j < len(f.Lines) && !(f.Lines[j].Entry || f.Lines[j].Disabled) {
+			j++
+		}
+		if j == len(f.Lines) {
+			for _, l := range f.Lines[i:] {
+				units = append(units, unit{lines: []Line{l}})
+			}
+			break
+		}
+		start := f.commentBlockStart(j)
+		for _, l := range f.Lines[i:start] {
+			units = append(units, unit{lines: []Line{l}})
+		}
+		units = append(units, unit{lines: f.Lines[start : j+1], key: f.Lines[j].Key})
+		i = j
+	}
+
+	byKey := map[string][]unit{}
+	for _, u := range units {
+		if u.key != "" {
+			byKey[u.key] = append(byKey[u.key], u)
+		}
+	}
+
+	isBlank := func(u unit) bool {
+		return u.key == "" && len(u.lines) == 1 && strings.TrimSpace(u.lines[0].Raw) == ""
+	}
+
+	var out []Line
+	placed := map[string]bool{}
+	skip := make([]bool, len(units))
+	for k, u := range units {
+		if skip[k] {
+			continue
+		}
+		if u.key == "" {
+			out = append(out, u.lines...)
+			continue
+		}
+		if placed[u.key] {
+			// This occurrence has been moved up. Avoid leaving a doubled
+			// blank line (or a trailing one) where it used to be.
+			prevBlank := len(out) > 0 && strings.TrimSpace(out[len(out)-1].Raw) == ""
+			next := k + 1
+			for next < len(units) && skip[next] {
+				next++
+			}
+			nextBlank := next >= len(units) || isBlank(units[next])
+			if prevBlank && nextBlank {
+				if next < len(units) {
+					skip[next] = true
+				} else {
+					out = out[:len(out)-1]
+				}
+			}
+			continue
+		}
+		placed[u.key] = true
+		for _, occ := range byKey[u.key] {
+			out = append(out, occ.lines...)
+		}
+	}
+	f.Lines = out
+	return !bytes.Equal(before, f.Bytes())
+}

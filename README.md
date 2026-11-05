@@ -61,6 +61,10 @@ dotenv ls --all                    # -a, include disabled keys
 
 dotenv remove DEBUG OLD_KEY        # aliases: rm, unset, delete
 
+dotenv format                      # print the file with repeated keys grouped (alias: fmt)
+dotenv format -i                   # --in-place: rewrite the file instead
+dotenv format --check              # exit 1 if the file would change
+
 dotenv -f .env.production get API_KEY
 ```
 
@@ -98,6 +102,12 @@ A commented-out line that still reads as `# KEY=value` is treated as a
 *disabled* key rather than as comment text. It is hidden from `get` and `ls`,
 but `explain` lists it with a leading `# `, the comment block above it stays
 attached to it, `set` re-enables it in place, and `remove` deletes it.
+
+`format` moves every later occurrence of a key, active or disabled, up to sit
+after its first occurrence. Occurrences keep their relative order and each
+keeps its own comment block, so a file with `DB=1` near the top and a disabled
+`# DB=3` with its own description further down ends up with both together.
+Nothing else is reordered or rewritten.
 
 `set` creates the file if it does not exist; `get`, `ls`, and `remove` error
 if it is missing. Missing keys exit non-zero.

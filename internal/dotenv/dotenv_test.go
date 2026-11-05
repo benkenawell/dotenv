@@ -361,3 +361,73 @@ func TestToggle(t *testing.T) {
 		t.Errorf("mixed toggle: %q", got)
 	}
 }
+
+func TestFormat(t *testing.T) {
+	cases := []struct{ name, src, want string }{
+		{
+			"disabled duplicate moves up with its block",
+			"# db\nDB=1\n\nOTHER=2\n\n# db staging\n# DB=3\n",
+			"# db\nDB=1\n# db staging\n# DB=3\n\nOTHER=2\n",
+		},
+		{
+			"order of occurrences preserved, blocks stay with each",
+			"# first\n# A=1\nB=x\n# second\nA=2\nC=y\n# third\n# A=3\n",
+			"# first\n# A=1\n# second\nA=2\n# third\n# A=3\nB=x\nC=y\n",
+		},
+		{
+			"first occurrence without block, later with",
+			"A=1\nB=2\n\n# later\nA=3\n",
+			"A=1\n# later\nA=3\nB=2\n",
+		},
+		{
+			"header comment separated by blank is filler and stays",
+			"# header\n\nA=1\nB=2\nA=3\n",
+			"# header\n\nA=1\nA=3\nB=2\n",
+		},
+		{
+			"multiple keys interleaved",
+			"A=1\nB=1\nA=2\nB=2\n",
+			"A=1\nA=2\nB=1\nB=2\n",
+		},
+		{
+			"doubled blank collapsed in the middle",
+			"A=1\n\nB=2\n\nA=3\n\nC=4\n",
+			"A=1\nA=3\n\nB=2\n\nC=4\n",
+		},
+		{
+			"multi-line value moves intact",
+			"A=1\nB=2\nA='x\ny'\n",
+			"A=1\nA='x\ny'\nB=2\n",
+		},
+		{
+			"already grouped is unchanged",
+			"# a\nA=1\n# A=2\n\nB=3\n",
+			"# a\nA=1\n# A=2\n\nB=3\n",
+		},
+	}
+	for _, c := range cases {
+		f, err := Parse([]byte(c.src))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		changed := f.Format()
+		if got := string(f.Bytes()); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+		if changed != (c.src != c.want) {
+			t.Errorf("%s: changed=%v", c.name, changed)
+		}
+		// Idempotent.
+		if f.Format() {
+			t.Errorf("%s: second Format reported a change", c.name)
+		}
+		// Values and descriptions survive.
+		again, _ := Parse(f.Bytes())
+		orig, _ := Parse([]byte(c.src))
+		for _, e := range orig.Entries() {
+			if v, _ := again.Lookup(e.Key); v != e.Value {
+				t.Errorf("%s: value of %s changed: %q -> %q", c.name, e.Key, e.Value, v)
+			}
+		}
+	}
+}
