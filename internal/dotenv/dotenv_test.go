@@ -335,3 +335,29 @@ func TestDisabledEntries(t *testing.T) {
 		t.Errorf("remove left disabled B behind:\n%s", got)
 	}
 }
+
+func TestToggle(t *testing.T) {
+	f, _ := Parse([]byte("A=1\n# B=2\n"))
+	if !f.Toggle("A") || !f.Toggle("B") {
+		t.Fatal("toggle existing keys")
+	}
+	if got := string(f.Bytes()); got != "# A=1\nB=2\n" {
+		t.Errorf("after toggle: %q", got)
+	}
+	if !f.Toggle("A") || !f.Toggle("B") {
+		t.Fatal("toggle back")
+	}
+	if got := string(f.Bytes()); got != "A=1\n# B=2\n" {
+		t.Errorf("after second toggle: %q", got)
+	}
+	if f.Toggle("ZZZ") {
+		t.Error("missing key must report not found")
+	}
+	// With both an active and a disabled copy, toggle disables (the key is
+	// active), so the result is unambiguous.
+	g, _ := Parse([]byte("# K=old\nK=new\n"))
+	g.Toggle("K")
+	if got := string(g.Bytes()); got != "# K=old\n# K=new\n" {
+		t.Errorf("mixed toggle: %q", got)
+	}
+}

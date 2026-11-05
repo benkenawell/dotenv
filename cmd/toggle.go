@@ -34,6 +34,19 @@ hand as "# KEY=value". Enabling a key that is already active is a no-op.`,
 	},
 }
 
+var toggleCmd = &cobra.Command{
+	Use:   "toggle <KEY>...",
+	Short: "Disable active keys, enable disabled ones",
+	Long: `Flip each KEY between active and disabled. An active key is commented out
+as "dotenv disable" would; a disabled key is restored as "dotenv enable" would.
+Each key is handled independently.`,
+	Example: `  dotenv toggle DEBUG`,
+	Args:    cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return toggle(args, (*dotenv.File).Toggle)
+	},
+}
+
 func toggle(keys []string, op func(*dotenv.File, string) bool) error {
 	f, path, err := loadExisting()
 	if err != nil {
@@ -55,5 +68,5 @@ func toggle(keys []string, op func(*dotenv.File, string) bool) error {
 }
 
 func init() {
-	rootCmd.AddCommand(disableCmd, enableCmd)
+	rootCmd.AddCommand(disableCmd, enableCmd, toggleCmd)
 }

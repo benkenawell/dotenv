@@ -593,3 +593,12 @@ func (f *File) DisabledEntries() []Line {
 	}
 	return out
 }
+
+// Toggle disables key if it has any active entry, otherwise enables it. It
+// reports whether the key exists in any state.
+func (f *File) Toggle(key string) bool {
+	if _, active := f.Lookup(key); active {
+		return f.Disable(key)
+	}
+	return f.Enable(key)
+}
