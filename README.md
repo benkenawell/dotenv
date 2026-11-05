@@ -60,16 +60,3 @@ empty string removes it. Newlines in the text produce multiple comment lines.
 
 `set` creates the file if it does not exist; `get`, `ls`, and `remove` error
 if it is missing. Missing keys exit non-zero.
-
-## Releasing
-
-Pushing a semver tag builds binaries for Linux, macOS, and Windows (amd64 and
-arm64) with GoReleaser and publishes them as a GitHub Release with checksums.
-Tags with a pre-release suffix such as `v1.2.0-rc.1` are marked pre-release.
-
-```sh
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-`dotenv --version` reports the tag the binary was built from.
