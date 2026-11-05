@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -38,10 +37,7 @@ appears more than once only the last value is shown.`,
 			for _, e := range entries {
 				out[e.Key] = e.Value
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetEscapeHTML(false)
-			enc.SetIndent("", "  ")
-			return enc.Encode(out)
+			return writeJSON(out)
 		}
 		if lsKeys {
 			for _, e := range entries {

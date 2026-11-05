@@ -16,10 +16,15 @@ var setCmd = &cobra.Command{
 
 An existing key is rewritten in place; a new key is appended. The value may be
 given as a second argument or as a single KEY=VALUE argument. Values are quoted
-only when required.`,
+only when required.
+
+Use --explain to write a comment block directly above the key, replacing any
+comment already there. Newlines in the text produce multiple comment lines.
+Read it back with "dotenv explain KEY".`,
 	Example: `  dotenv set PORT 8080
   dotenv set DATABASE_URL=postgres://localhost/app
-  dotenv set -f .env.local SECRET 'has spaces and #hash'`,
+  dotenv set -f .env.local SECRET 'has spaces and #hash'
+  dotenv set --explain 'Postgres connection string' DATABASE_URL postgres://localhost/app`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key, value := args[0], ""
@@ -41,8 +46,16 @@ only when required.`,
 			return err
 		}
 		f.Set(key, value)
+		if cmd.Flags().Changed("explain") {
+			f.SetComment(key, setExplain)
+		}
 		return dotenv.Save(path, f)
 	},
 }
 
-func init() { rootCmd.AddCommand(setCmd) }
+var setExplain string
+
+func init() {
+	setCmd.Flags().StringVarP(&setExplain, "explain", "e", "", "comment to write above the key (empty removes it)")
+	rootCmd.AddCommand(setCmd)
+}

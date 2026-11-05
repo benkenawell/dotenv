@@ -1,6 +1,7 @@
 package dotenv
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -79,5 +80,40 @@ func TestCRLF(t *testing.T) {
 	f.Set("C", "3")
 	if got := string(f.Bytes()); got != "A=1\r\nB=2\r\nC=3\r\n" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestExplainAndSetComment(t *testing.T) {
+	f, _ := Parse([]byte("# db settings\nDB_HOST=localhost\n\n# first\n#   second\nPORT=1\nNOCOMMENT=x\n"))
+	if d, ok := f.Explain("DB_HOST"); !ok || d != "db settings" {
+		t.Errorf("DB_HOST: %q %v", d, ok)
+	}
+	if d, _ := f.Explain("PORT"); d != "first\n  second" {
+		t.Errorf("PORT: %q", d)
+	}
+	if d, ok := f.Explain("NOCOMMENT"); !ok || d != "" {
+		t.Errorf("NOCOMMENT: %q %v", d, ok)
+	}
+	if _, ok := f.Explain("MISSING"); ok {
+		t.Error("MISSING should not be found")
+	}
+
+	// replace an existing block
+	f.SetComment("PORT", "the port")
+	// add a block where none existed, after a non-blank line
+	f.SetComment("NOCOMMENT", "now\nexplained")
+	want := "# db settings\nDB_HOST=localhost\n\n# the port\nPORT=1\n\n# now\n# explained\nNOCOMMENT=x\n"
+	if got := string(f.Bytes()); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	// remove a block
+	f.SetComment("DB_HOST", "")
+	if got := string(f.Bytes()); !strings.HasPrefix(got, "DB_HOST=localhost\n") {
+		t.Errorf("remove failed: %q", got)
+	}
+
+	all := f.ExplainAll()
+	if len(all) != 3 || all[1].Key != "PORT" || all[1].Line != 4 || all[1].Description != "the port" {
+		t.Errorf("ExplainAll: %+v", all)
 	}
 }

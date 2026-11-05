@@ -357,3 +357,110 @@ func Save(path string, f *File) error {
 	}
 	return nil
 }
+
+// Described is a key with its position and the comment block above it.
+type Described struct {
+	Line        int // 1-based line number of the entry
+	Key         string
+	Description string // "" when there is no comment block
+}
+
+func isComment(l Line) bool {
+	return !l.Entry && strings.HasPrefix(strings.TrimSpace(l.Raw), "#")
+}
+
+// commentBlockStart returns the index of the first line of the contiguous
+// comment block directly above Lines[i], or i when there is none.
+func (f *File) commentBlockStart(i int) int {
+	start := i
+	for start > 0 && isComment(f.Lines[start-1]) {
+		start--
+	}
+	return start
+}
+
+func (f *File) lastIndex(key string) int {
+	for i := len(f.Lines) - 1; i >= 0; i-- {
+		if f.Lines[i].Entry && f.Lines[i].Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func (f *File) descriptionAt(i int) string {
+	start := f.commentBlockStart(i)
+	if start == i {
+		return ""
+	}
+	parts := make([]string, 0, i-start)
+	for _, l := range f.Lines[start:i] {
+		t := strings.TrimPrefix(strings.TrimSpace(l.Raw), "#")
+		parts = append(parts, strings.TrimPrefix(t, " "))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// Explain returns the comment block directly above the last occurrence of
+// key, with comment markers removed. ok is false when the key is absent.
+func (f *File) Explain(key string) (desc string, ok bool) {
+	i := f.lastIndex(key)
+	if i < 0 {
+		return "", false
+	}
+	return f.descriptionAt(i), true
+}
+
+// ExplainAll describes every key in file order. Duplicate keys report their
+// last occurrence.
+func (f *File) ExplainAll() []Described {
+	idx := map[string]int{}
+	var out []Described
+	lineNo := 1
+	for i, l := range f.Lines {
+		if l.Entry {
+			d := Described{Line: lineNo, Key: l.Key, Description: f.descriptionAt(i)}
+			if j, seen := idx[l.Key]; seen {
+				out[j] = d
+			} else {
+				idx[l.Key] = len(out)
+				out = append(out, d)
+			}
+		}
+		lineNo += strings.Count(l.Raw, "\n") + 1
+	}
+	return out
+}
+
+// SetComment replaces the comment block directly above key with text, one
+// "# " line per line of text. An empty text removes the block. It reports
+// whether the key exists.
+func (f *File) SetComment(key, text string) bool {
+	i := f.lastIndex(key)
+	if i < 0 {
+		return false
+	}
+	start := f.commentBlockStart(i)
+	var block []Line
+	if strings.TrimSpace(text) != "" {
+		for _, t := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+			t = strings.TrimRight(t, " \t")
+			if t == "" {
+				block = append(block, Line{Raw: "#"})
+			} else {
+				block = append(block, Line{Raw: "# " + t})
+			}
+		}
+		// Separate a fresh block from a preceding entry with a blank line so
+		// the comment does not read as belonging to the line above.
+		if start == i && start > 0 && strings.TrimSpace(f.Lines[start-1].Raw) != "" {
+			block = append([]Line{{Raw: ""}}, block...)
+		}
+	}
+	lines := make([]Line, 0, len(f.Lines)-(i-start)+len(block))
+	lines = append(lines, f.Lines[:start]...)
+	lines = append(lines, block...)
+	lines = append(lines, f.Lines[i:]...)
+	f.Lines = lines
+	return true
+}
