@@ -336,32 +336,6 @@ func TestDisabledEntries(t *testing.T) {
 	}
 }
 
-func TestToggle(t *testing.T) {
-	f, _ := Parse([]byte("A=1\n# B=2\n"))
-	if !f.Toggle("A") || !f.Toggle("B") {
-		t.Fatal("toggle existing keys")
-	}
-	if got := string(f.Bytes()); got != "# A=1\nB=2\n" {
-		t.Errorf("after toggle: %q", got)
-	}
-	if !f.Toggle("A") || !f.Toggle("B") {
-		t.Fatal("toggle back")
-	}
-	if got := string(f.Bytes()); got != "A=1\n# B=2\n" {
-		t.Errorf("after second toggle: %q", got)
-	}
-	if f.Toggle("ZZZ") {
-		t.Error("missing key must report not found")
-	}
-	// With both an active and a disabled copy, toggle disables (the key is
-	// active), so the result is unambiguous.
-	g, _ := Parse([]byte("# K=old\nK=new\n"))
-	g.Toggle("K")
-	if got := string(g.Bytes()); got != "# K=old\n# K=new\n" {
-		t.Errorf("mixed toggle: %q", got)
-	}
-}
-
 func TestFormat(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{
@@ -436,9 +410,9 @@ func TestOccurrences(t *testing.T) {
 	f, _ := Parse([]byte("# first\nA=1\nB=x\n\n# second\n# A='two\n# lines'\nA=3\n"))
 	occ := f.Occurrences("A")
 	want := []Occurrence{
-		{Line: 2, Value: "1", Description: "first"},
-		{Line: 6, Value: "two\nlines", Description: "second", Disabled: true},
-		{Line: 8, Value: "3"},
+		{Line: 2, Value: "1", Description: "first", index: 1},
+		{Line: 6, Value: "two\nlines", Description: "second", Disabled: true, index: 5},
+		{Line: 8, Value: "3", index: 6},
 	}
 	if len(occ) != len(want) {
 		t.Fatalf("got %+v", occ)
@@ -473,5 +447,110 @@ func TestAllOccurrences(t *testing.T) {
 	// The effective view still collapses to the last active value.
 	if e := f.Entries(); len(e) != 2 || e[0].Value != "3" {
 		t.Errorf("Entries: %+v", e)
+	}
+}
+
+func TestAppend(t *testing.T) {
+	f, _ := Parse([]byte("# primary\nDB=local\n\nOTHER=1\n"))
+
+	// Active append goes right after the key's last occurrence and wins.
+	f.Append("DB", "staging", false, "staging")
+	want := "# primary\nDB=local\n# staging\nDB=staging\n\nOTHER=1\n"
+	if got := string(f.Bytes()); got != want {
+		t.Errorf("active append:\n got %q\nwant %q", got, want)
+	}
+	if v, _ := f.Lookup("DB"); v != "staging" {
+		t.Errorf("effective value should be the appended one, got %q", v)
+	}
+
+	// Disabled append follows the group and leaves the effective value alone.
+	f.Append("DB", "prod", true, "prod\ncareful")
+	want = "# primary\nDB=local\n# staging\nDB=staging\n# prod\n# careful\n# DB=prod\n\nOTHER=1\n"
+	if got := string(f.Bytes()); got != want {
+		t.Errorf("disabled append:\n got %q\nwant %q", got, want)
+	}
+	if v, _ := f.Lookup("DB"); v != "staging" {
+		t.Errorf("disabled append changed effective value: %q", v)
+	}
+	occ := f.Occurrences("DB")
+	if len(occ) != 3 || occ[2].Description != "prod\ncareful" || !occ[2].Disabled || occ[2].Value != "prod" {
+		t.Errorf("occurrences: %+v", occ)
+	}
+
+	// Appending after a disabled last occurrence still lands after it.
+	f.Append("DB", "last", false, "")
+	if got := string(f.Bytes()); !strings.Contains(got, "# DB=prod\nDB=last\n\nOTHER=1\n") {
+		t.Errorf("append after disabled:\n%s", got)
+	}
+
+	// Ungrouped occurrences: append after the last one in the file.
+	g, _ := Parse([]byte("A=1\nB=2\nA=3\nC=4\n"))
+	g.Append("A", "5", false, "")
+	if got := string(g.Bytes()); got != "A=1\nB=2\nA=3\nA=5\nC=4\n" {
+		t.Errorf("ungrouped append: %q", got)
+	}
+
+	// New key: appended at end, honouring disabled and quoting.
+	g.Append("NEW", "has space", false, "")
+	g.Append("OFF", "x", true, "off")
+	if got := string(g.Bytes()); !strings.HasSuffix(got, "C=4\nNEW='has space'\n\n# off\n# OFF=x\n") {
+		t.Errorf("new key append: %q", got)
+	}
+	if _, ok := g.Lookup("OFF"); ok {
+		t.Error("disabled new key must not be active")
+	}
+}
+
+func TestOccurrenceOperations(t *testing.T) {
+	src := "# local\nDB=local\n# staging\nDB=staging\n# prod\n# DB=prod\n\nOTHER=1\n"
+
+	// Use: exactly one active afterwards, blocks untouched.
+	f, _ := Parse([]byte(src))
+	f.Use(f.Occurrences("DB")[2])
+	want := "# local\n# DB=local\n# staging\n# DB=staging\n# prod\nDB=prod\n\nOTHER=1\n"
+	if got := string(f.Bytes()); got != want {
+		t.Errorf("use:\n got %q\nwant %q", got, want)
+	}
+	if v, _ := f.Lookup("DB"); v != "prod" {
+		t.Errorf("effective after use: %q", v)
+	}
+
+	// EnableOccurrence leaves siblings alone (deliberate shadowing).
+	f.EnableOccurrence(f.Occurrences("DB")[0])
+	if got := string(f.Bytes()); !strings.HasPrefix(got, "# local\nDB=local\n# staging\n# DB=staging\n# prod\nDB=prod\n") {
+		t.Errorf("enable one:\n%s", got)
+	}
+	// DisableOccurrence likewise.
+	f.DisableOccurrence(f.Occurrences("DB")[2])
+	if v, _ := f.Lookup("DB"); v != "local" {
+		t.Errorf("after disabling prod, local should be effective: %q", v)
+	}
+
+	// Remove one occurrence with its block; others and spacing intact.
+	g, _ := Parse([]byte(src))
+	g.Remove(g.Occurrences("DB")[1])
+	want = "# local\nDB=local\n# prod\n# DB=prod\n\nOTHER=1\n"
+	if got := string(g.Bytes()); got != want {
+		t.Errorf("remove middle:\n got %q\nwant %q", got, want)
+	}
+	g.Remove(g.Occurrences("DB")[1])
+	want = "# local\nDB=local\n\nOTHER=1\n"
+	if got := string(g.Bytes()); got != want {
+		t.Errorf("remove last of group:\n got %q\nwant %q", got, want)
+	}
+
+	// SetState disabled: rewrite in place and comment out; new key disabled.
+	h, _ := Parse([]byte("A=1\nB=2\n"))
+	h.SetState("A", "x y", true)
+	h.SetState("C", "3", true)
+	if got := string(h.Bytes()); got != "# A='x y'\nB=2\n# C=3\n" {
+		t.Errorf("SetState disabled: %q", got)
+	}
+	if _, ok := h.Lookup("A"); ok {
+		t.Error("A should be disabled")
+	}
+	h.SetState("A", "z", false)
+	if got := string(h.Bytes()); got != "A=z\nB=2\n# C=3\n" {
+		t.Errorf("SetState re-enable: %q", got)
 	}
 }

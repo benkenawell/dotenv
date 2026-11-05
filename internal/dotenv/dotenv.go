@@ -313,16 +313,24 @@ func (f *File) Entries() []Line {
 // Set assigns value to key, rewriting the last existing occurrence in place
 // or appending a new line. If the key exists only as a disabled entry, that
 // entry is re-enabled in place.
-func (f *File) Set(key, value string) {
-	if i := f.lastIndex(key); i >= 0 {
-		f.Lines[i].Entry, f.Lines[i].Disabled = true, false
-		f.Lines[i].Value = value
-		f.Lines[i].Raw = render(f.Lines[i])
-		return
+func (f *File) Set(key, value string) { f.SetState(key, value, false) }
+
+// SetState is Set with control over whether the resulting occurrence is
+// active or disabled (commented out).
+func (f *File) SetState(key, value string, disabled bool) {
+	i := f.lastIndex(key)
+	if i < 0 {
+		f.Lines = append(f.Lines, Line{Key: key})
+		i = len(f.Lines) - 1
 	}
-	l := Line{Key: key, Value: value, Entry: true}
-	l.Raw = render(l)
-	f.Lines = append(f.Lines, l)
+	l := &f.Lines[i]
+	l.Value = value
+	l.Entry, l.Disabled = true, false
+	l.Raw = render(*l)
+	if disabled {
+		l.Entry, l.Disabled = false, true
+		l.Raw = "# " + l.Raw
+	}
 }
 
 // Unset removes every occurrence of key along with the comment block directly
@@ -335,17 +343,74 @@ func (f *File) Unset(key string) bool {
 			continue
 		}
 		removed = true
-		start := f.commentBlockStart(i)
-		end := i + 1
-		prevBlank := start > 0 && strings.TrimSpace(f.Lines[start-1].Raw) == ""
-		nextBlank := end >= len(f.Lines) || strings.TrimSpace(f.Lines[end].Raw) == ""
-		if prevBlank && nextBlank {
-			start--
-		}
-		f.Lines = append(f.Lines[:start:start], f.Lines[end:]...)
-		i = start
+		i = f.removeAt(i)
 	}
 	return removed
+}
+
+// removeAt deletes the entry at Lines[i] with its comment block, collapsing a
+// blank line that would be left doubled or dangling. It returns the index
+// where the removed range began.
+func (f *File) removeAt(i int) int {
+	start := f.commentBlockStart(i)
+	end := i + 1
+	prevBlank := start > 0 && strings.TrimSpace(f.Lines[start-1].Raw) == ""
+	nextBlank := end >= len(f.Lines) || strings.TrimSpace(f.Lines[end].Raw) == ""
+	if prevBlank && nextBlank {
+		start--
+	}
+	f.Lines = append(f.Lines[:start:start], f.Lines[end:]...)
+	return start
+}
+
+// Remove deletes one occurrence with its comment block.
+func (f *File) Remove(o Occurrence) { f.removeAt(o.index) }
+
+func (f *File) disableAt(i int) {
+	l := &f.Lines[i]
+	if l.Disabled {
+		return
+	}
+	parts := strings.Split(l.Raw, "\n")
+	for j, p := range parts {
+		parts[j] = "# " + p
+	}
+	l.Raw = strings.Join(parts, "\n")
+	l.Entry, l.Disabled = false, true
+}
+
+func (f *File) enableAt(i int) {
+	l := &f.Lines[i]
+	if l.Entry {
+		return
+	}
+	parts := strings.Split(l.Raw, "\n")
+	for j, p := range parts {
+		parts[j] = uncomment(p)
+	}
+	l.Raw = strings.Join(parts, "\n")
+	l.Entry, l.Disabled = true, false
+}
+
+// EnableOccurrence uncomments one occurrence, leaving its siblings as they are.
+func (f *File) EnableOccurrence(o Occurrence) { f.enableAt(o.index) }
+
+// DisableOccurrence comments out one occurrence, leaving its siblings as they are.
+func (f *File) DisableOccurrence(o Occurrence) { f.disableAt(o.index) }
+
+// Use makes o the only active occurrence of its key: it is enabled and every
+// other occurrence of the key is disabled.
+func (f *File) Use(o Occurrence) {
+	key := f.Lines[o.index].Key
+	for i := range f.Lines {
+		if (f.Lines[i].Entry || f.Lines[i].Disabled) && f.Lines[i].Key == key {
+			if i == o.index {
+				f.enableAt(i)
+			} else {
+				f.disableAt(i)
+			}
+		}
+	}
 }
 
 // Bytes serializes the file.
@@ -504,6 +569,14 @@ func (f *File) SetComment(key, text string) bool {
 	if i < 0 {
 		return false
 	}
+	f.setCommentAt(i, text, true)
+	return true
+}
+
+// setCommentAt replaces the comment block above Lines[i] with text. When
+// separate is set, a fresh block directly below a non-blank line is preceded
+// by a blank line so it does not read as part of the line above.
+func (f *File) setCommentAt(i int, text string, separate bool) {
 	start := f.commentBlockStart(i)
 	var block []Line
 	if strings.TrimSpace(text) != "" {
@@ -517,7 +590,7 @@ func (f *File) SetComment(key, text string) bool {
 		}
 		// Separate a fresh block from a preceding entry with a blank line so
 		// the comment does not read as belonging to the line above.
-		if start == i && start > 0 && strings.TrimSpace(f.Lines[start-1].Raw) != "" {
+		if separate && start == i && start > 0 && strings.TrimSpace(f.Lines[start-1].Raw) != "" {
 			block = append([]Line{{Raw: ""}}, block...)
 		}
 	}
@@ -526,7 +599,6 @@ func (f *File) SetComment(key, text string) bool {
 	lines = append(lines, block...)
 	lines = append(lines, f.Lines[i:]...)
 	f.Lines = lines
-	return true
 }
 
 // Disable comments out every active entry for key, preserving its text so it
@@ -539,15 +611,7 @@ func (f *File) Disable(key string) bool {
 			continue
 		}
 		found = true
-		if l.Disabled {
-			continue
-		}
-		parts := strings.Split(l.Raw, "\n")
-		for j, p := range parts {
-			parts[j] = "# " + p
-		}
-		l.Raw = strings.Join(parts, "\n")
-		l.Entry, l.Disabled = false, true
+		f.disableAt(i)
 	}
 	return found
 }
@@ -562,15 +626,7 @@ func (f *File) Enable(key string) bool {
 			continue
 		}
 		found = true
-		if l.Entry {
-			continue
-		}
-		parts := strings.Split(l.Raw, "\n")
-		for j, p := range parts {
-			parts[j] = uncomment(p)
-		}
-		l.Raw = strings.Join(parts, "\n")
-		l.Entry, l.Disabled = true, false
+		f.enableAt(i)
 	}
 	return found
 }
@@ -592,15 +648,6 @@ func (f *File) DisabledEntries() []Line {
 		out = append(out, l)
 	}
 	return out
-}
-
-// Toggle disables key if it has any active entry, otherwise enables it. It
-// reports whether the key exists in any state.
-func (f *File) Toggle(key string) bool {
-	if _, active := f.Lookup(key); active {
-		return f.Disable(key)
-	}
-	return f.Enable(key)
 }
 
 // Format groups every occurrence of a key, active or disabled, together at
@@ -693,6 +740,7 @@ type Occurrence struct {
 	Value       string
 	Description string
 	Disabled    bool
+	index       int // position in File.Lines; valid until the file is mutated
 }
 
 // Occurrences returns every appearance of key, active or disabled, in file
@@ -702,7 +750,7 @@ func (f *File) Occurrences(key string) []Occurrence {
 	lineNo := 1
 	for i, l := range f.Lines {
 		if (l.Entry || l.Disabled) && l.Key == key {
-			out = append(out, Occurrence{Line: lineNo, Value: l.Value, Description: f.descriptionAt(i), Disabled: l.Disabled})
+			out = append(out, Occurrence{Line: lineNo, Value: l.Value, Description: f.descriptionAt(i), Disabled: l.Disabled, index: i})
 		}
 		lineNo += strings.Count(l.Raw, "\n") + 1
 	}
@@ -730,4 +778,33 @@ func (f *File) AllOccurrences() []Row {
 		lineNo += strings.Count(l.Raw, "\n") + 1
 	}
 	return out
+}
+
+// Append adds a new occurrence of key directly after its last existing
+// occurrence (active or disabled), or at the end of the file when the key is
+// new. The new occurrence is active unless disabled is set; when active it is
+// the last occurrence and so becomes the effective value. A non-empty comment
+// becomes the block above the new occurrence.
+func (f *File) Append(key, value string, disabled bool, comment string) {
+	l := Line{Key: key, Value: value, Entry: true}
+	l.Raw = render(l)
+	if disabled {
+		l.Entry, l.Disabled = false, true
+		l.Raw = "# " + l.Raw
+	}
+
+	at := len(f.Lines)
+	grouped := false
+	for i := len(f.Lines) - 1; i >= 0; i-- {
+		if (f.Lines[i].Entry || f.Lines[i].Disabled) && f.Lines[i].Key == key {
+			at, grouped = i+1, true
+			break
+		}
+	}
+	f.Lines = append(f.Lines[:at], append([]Line{l}, f.Lines[at:]...)...)
+	if strings.TrimSpace(comment) != "" {
+		// Inside a group the block sits directly under the previous
+		// occurrence; a new key at the end of the file gets a separating blank.
+		f.setCommentAt(at, comment, !grouped)
+	}
 }

@@ -43,6 +43,11 @@ dotenv set DATABASE_URL=postgres://localhost/app
 dotenv set SECRET 'has spaces'     # quoted automatically when needed
 dotenv set -e 'Postgres DSN' DATABASE_URL postgres://localhost/app
                                    # --explain writes a comment block above the key
+dotenv set --append DB_HOST staging.internal
+                                   # add another occurrence after the last one; it becomes effective
+dotenv set --append --disabled DB_HOST prod.internal -e 'Production'
+                                   # add it commented out; effective value unchanged
+dotenv set --disabled FEATURE_X 1  # write the key but leave it commented out
 
 dotenv ls                          # effective view: one row per key, last active value wins
 dotenv ls --no-header
@@ -62,7 +67,15 @@ dotenv explain remove DATABASE_URL # delete the comment block, keep the key
 dotenv disable DEBUG               # comment the line out: "# DEBUG=..."
 dotenv enable DEBUG                # uncomment it again
 dotenv toggle DEBUG                # flip between the two
-dotenv remove DEBUG OLD_KEY        # aliases: rm, unset, delete
+
+dotenv use DB_HOST staging.internal   # make that occurrence the only active one
+dotenv use DB_HOST --line 6           # select by line number from `ls --all`
+dotenv use DB_HOST                    # with several occurrences: list them, change nothing
+
+dotenv remove DEBUG                # aliases: rm, unset, delete
+dotenv remove DB_HOST staging.internal   # one occurrence by value
+dotenv remove DB_HOST --line 6           # one occurrence by line
+dotenv remove DB_HOST --all              # every occurrence
 
 dotenv format                      # print the file with repeated keys grouped (alias: fmt)
 dotenv format -i                   # --in-place: rewrite the file instead
@@ -119,6 +132,42 @@ Line  Key           Value                     Description
    8  # DEBUG       true                      Verbose request logging
 ```
 
+To add an alternative database, append a second occurrence. It lands directly
+under the first and, being last, becomes the effective value:
+
+```sh
+dotenv set --append DATABASE_URL postgres://staging.internal/app -e 'Staging database'
+dotenv get DATABASE_URL
+# postgres://staging.internal/app
+```
+
+```sh
+# Postgres connection string
+DATABASE_URL=postgres://localhost/app
+# Staging database
+DATABASE_URL=postgres://staging.internal/app
+```
+
+`dotenv use` switches between them. With no selector it refuses and lists the
+choices; with a value it enables that occurrence and disables the rest:
+
+```sh
+dotenv use DATABASE_URL
+# dotenv: .env: "DATABASE_URL" has 2 occurrences; pass a VALUE or --line
+# Line  Key           Value                            Description
+#    2  DATABASE_URL  postgres://localhost/app         Postgres connection string
+#    4  DATABASE_URL  postgres://staging.internal/app  Staging database
+
+dotenv use DATABASE_URL postgres://localhost/app
+```
+
+```sh
+# Postgres connection string
+DATABASE_URL=postgres://localhost/app
+# Staging database
+# DATABASE_URL=postgres://staging.internal/app
+```
+
 A commented-out line that still reads as `# KEY=value` is treated as a
 *disabled* key rather than as comment text. It is hidden from `get` and `ls`,
 but `explain` and the `--all` listings show it with a leading `# `, the comment
@@ -128,6 +177,22 @@ deletes it.
 `--all` means the same thing everywhere: every occurrence in file order,
 disabled included. Without it, `get`, `ls`, and `explain` describe the
 effective environment, where the last active occurrence of a key wins.
+
+### Alternative values
+
+A key may appear more than once, typically one active value and some disabled
+alternatives. `set --append` adds an occurrence after the key's last one; it is
+active and shadows the previous value unless `--disabled` is given. `use`
+switches: the selected occurrence is enabled and every other one disabled.
+
+Commands that act on one occurrence (`use`, `remove`, `enable`, `disable`,
+`toggle`) select it by VALUE or by `--line N` using the numbers from
+`ls --all`. When a key has several occurrences and no selector is given,
+`use`, `remove`, and `enable` refuse, print the occurrences, and change
+nothing, because guessing would either destroy data or create silent
+shadowing. `disable` without a selector disables every active occurrence,
+since turning a key off is unambiguous. `remove --all` deletes every
+occurrence.
 
 `format` moves every later occurrence of a key, active or disabled, up to sit
 after its first occurrence. Occurrences keep their relative order and each
