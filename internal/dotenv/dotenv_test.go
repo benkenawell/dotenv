@@ -1,6 +1,7 @@
 package dotenv
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -115,5 +116,108 @@ func TestExplainAndSetComment(t *testing.T) {
 	all := f.ExplainAll()
 	if len(all) != 3 || all[1].Key != "PORT" || all[1].Line != 4 || all[1].Description != "the port" {
 		t.Errorf("ExplainAll: %+v", all)
+	}
+}
+
+func TestMultiLineValues(t *testing.T) {
+	src := "A=1\nKEY='line one\nline two\n  indented'\nPEM=\"-----BEGIN-----\nabc\\ndef\n-----END-----\"  # cert\nB=2\n"
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.Lookup("KEY"); got != "line one\nline two\n  indented" {
+		t.Errorf("single-quoted: %q", got)
+	}
+	// Inside double quotes a literal newline and an escaped \n both become newlines.
+	if got, _ := f.Lookup("PEM"); got != "-----BEGIN-----\nabc\ndef\n-----END-----" {
+		t.Errorf("double-quoted: %q", got)
+	}
+	if got, _ := f.Lookup("B"); got != "2" {
+		t.Errorf("entry after multi-line value lost: %q", got)
+	}
+	if string(f.Bytes()) != src {
+		t.Errorf("round-trip changed content:\n%s", f.Bytes())
+	}
+
+	// Line numbers account for the extra physical lines.
+	all := f.ExplainAll()
+	if all[3].Key != "B" || all[3].Line != 8 {
+		t.Errorf("ExplainAll line numbers: %+v", all)
+	}
+
+	// Editing an unrelated key leaves the multi-line entries untouched.
+	f.Set("A", "changed")
+	if got := string(f.Bytes()); got != strings.Replace(src, "A=1", "A=changed", 1) {
+		t.Errorf("unexpected rewrite:\n%s", got)
+	}
+
+	// Rewriting a multi-line value stores it on one line with escapes and
+	// still reads back identically.
+	f.Set("KEY", "x\ny")
+	again, err := Parse(f.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := again.Lookup("KEY"); got != "x\ny" {
+		t.Errorf("rewritten multi-line: %q", got)
+	}
+	if got, _ := again.Lookup("PEM"); got != "-----BEGIN-----\nabc\ndef\n-----END-----" {
+		t.Errorf("PEM disturbed: %q", got)
+	}
+}
+
+func TestUnterminatedQuote(t *testing.T) {
+	for _, src := range []string{"A='open\nB=2\n", "A=\"open\nB=2\n"} {
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("expected error for %q", src)
+		}
+	}
+}
+
+func TestSingleQuotedJSON(t *testing.T) {
+	oneLine := `{"name": "app", "port": 8080, "tags": ["a", "b"], "nested": {"x": null}}`
+	multiLine := "{\n  \"name\": \"app\",\n  \"url\": \"https://example.com/?a=1&b=2#frag\",\n  \"escaped\": \"line\\nbreak\",\n  \"money\": \"$5\"\n}"
+	src := "ONE='" + oneLine + "'\nMULTI='" + multiLine + "'\nAFTER=ok\n"
+
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Single quotes are literal: double quotes, braces, "#", "$", and the
+	// two-character sequence \n inside the JSON must all survive untouched.
+	if got, _ := f.Lookup("ONE"); got != oneLine {
+		t.Errorf("one-line JSON:\n got %q\nwant %q", got, oneLine)
+	}
+	if got, _ := f.Lookup("MULTI"); got != multiLine {
+		t.Errorf("multi-line JSON:\n got %q\nwant %q", got, multiLine)
+	}
+	if got, _ := f.Lookup("AFTER"); got != "ok" {
+		t.Errorf("entry after JSON block: %q", got)
+	}
+	if string(f.Bytes()) != src {
+		t.Errorf("round-trip changed content:\n%s", f.Bytes())
+	}
+
+	// Both values must still be valid JSON after parsing.
+	for _, k := range []string{"ONE", "MULTI"} {
+		v, _ := f.Lookup(k)
+		var out map[string]any
+		if err := json.Unmarshal([]byte(v), &out); err != nil {
+			t.Errorf("%s is not valid JSON after parse: %v", k, err)
+		}
+	}
+
+	// Writing JSON via Set picks single quotes (the value has double quotes
+	// but no single quotes or newlines) and reads back identically.
+	f.Set("WRITTEN", oneLine)
+	if !strings.Contains(string(f.Bytes()), "WRITTEN='"+oneLine+"'\n") {
+		t.Errorf("Set did not single-quote JSON:\n%s", f.Bytes())
+	}
+	again, err := Parse(f.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := again.Lookup("WRITTEN"); got != oneLine {
+		t.Errorf("written JSON round-trip: %q", got)
 	}
 }
