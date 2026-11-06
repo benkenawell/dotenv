@@ -6,8 +6,13 @@ Releases are cut by pushing a semver tag. The `Release` GitHub Actions workflow
 
 ## Cut a release
 
+Use an annotated tag. Its message becomes the top of the release notes, with
+the commit changelog appended beneath it.
+
 ```sh
-git tag v1.0.0
+git tag -a v1.0.0 -m "Headline for this release
+
+Longer notes, one paragraph or bullet per line."
 git push origin v1.0.0
 ```
 

@@ -17,6 +17,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # actions/checkout can leave annotated tags as lightweight ones, which
+      # drops the tag message GoReleaser uses for the release notes.
+      - name: Restore annotated tags
+        run: git fetch --force --tags
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

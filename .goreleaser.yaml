@@ -45,3 +45,7 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Lead the release notes with the annotated tag message; the commit
+  # changelog follows beneath it.
+  header: |
+    {{ .TagContents }}
